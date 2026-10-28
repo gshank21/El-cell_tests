@@ -1,0 +1,17 @@
+
+# PyCharm
+.idea/
+
+# Python virtual environment
+.venv/
+
+# Python generated files
+__pycache__/
+*.pyc
+
+# Lua compiler output
+luac.out
+
+# Temporary files
+*.tmp
+*.bak
