@@ -39,11 +39,11 @@ initial_CV_cutoff_C = 1/50  -- initial discharge CV current cutoff
 -- Set N_sub_cycles to 0 to skip that column. All currents are calculated
 -- from m2 and specific_capacity; operators never enter a current manually.
 -- Column                 1         2           3           4           5
-N_sub_cycles    =       { 2,        100,        2,          100,        0     } -- complete cycles
+N_sub_cycles    =       { 10,       10,         0,          0,          0     } -- complete cycles
 VLo             =       { 0.01,     0.01,       0.01,       0.01,       0.01  } -- V12, V
 VHi             =       { 0.80,     0.80,       0.80,       0.80,       0.80  } -- V12, V
-C_charge        =       { 1/3,      1/3,        1/10,       1/3,        1/3   } -- CC charge C-rate
-C_disch         =       { 1/3,      1/3,        1/10,       1/3,        1/3   } -- CC discharge C-rate
+C_charge        =       { 1/10,     1/5,        1/10,       1/3,        1/3   } -- CC charge C-rate
+C_disch         =       { 1/10,     1/5,        1/10,       1/3,        1/3   } -- CC discharge C-rate
 C_CV_charge_end =       { 1/50,     1/50,       1/50,       1/50,       1/50  } -- CV charge end C-rate
 C_CV_disch_end  =       { 1/50,     1/50,       1/50,       1/50,       1/50  } -- CV discharge end C-rate
 
@@ -54,6 +54,10 @@ record_fallback_dt = 60     -- s: maximum interval between recorded samples
 MAX_CC_TIME_S = 24 * 3600   -- s: abort on CC timeout
 MAX_CV_TIME_S = 3 * 3600    -- s: abort on CV timeout
 CV_MIN_TIME_S = 2           -- s: minimum CV hold before current-cutoff check
+
+-- Sensor recording settings
+record_sensor_dt = 5       -- Record sensor data every 5 seconds
+display_maximum_dt = 1     -- Update live electrochemical display every 1 second
 
 -- Independent hardware safety bounds (verify for the actual cell)
 MAX_CURRENT_A = 0.005       -- A: 5 mA absolute current limit
