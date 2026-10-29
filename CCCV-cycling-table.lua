@@ -1,5 +1,5 @@
 ---------------------------------------------------------------------------------
---                    CUSTOM CCCV HALF-CELL PROTOTYPE                               --
+--                    CUSTOM CCCV HALF-CELL PROTOTYPE - V2R CONTROL                               --
 --                 adapted from script-base version 2026-07-09                     --
 --                    requires channel-firmware 158 or higher                  --
 ---------------------------------------------------------------------------------
@@ -15,7 +15,7 @@
 -- It is called before every step transition, to re-calculate math expressions.
 ---------------------------------------------------------------------------------
 -- CUSTOM CCCV HALF-CELL PROTOCOL (prototype; hardware validation required)
--- Electrode 2 is the working electrode, controlled via i12 / V12.
+-- Electrode 2 is the working electrode, controlled via i12 / V2R.
 -- All current setpoints and the CV cutoff are in amperes.
 -- Operator mass is supplied by EL-Software as input variable m2 (assumed g).
 -- Do NOT silently substitute a fallback mass if that input is absent.
@@ -39,16 +39,16 @@ initial_CV_cutoff_C = 1/50  -- initial discharge CV current cutoff
 -- Set N_sub_cycles to 0 to skip that column. All currents are calculated
 -- from m2 and specific_capacity; operators never enter a current manually.
 -- Column                 1         2           3           4           5
-N_sub_cycles    =       { 10,       10,         0,          0,          0     } -- complete cycles
+N_sub_cycles    =       { 5,        5,          0,          0,          0     } -- complete cycles
 VLo             =       { 0.01,     0.01,       0.01,       0.01,       0.01  } -- V12, V
-VHi             =       { 0.80,     0.80,       0.80,       0.80,       0.80  } -- V12, V
-C_charge        =       { 1/10,     1/5,        1/10,       1/3,        1/3   } -- CC charge C-rate
-C_disch         =       { 1/10,     1/5,        1/10,       1/3,        1/3   } -- CC discharge C-rate
+VHi             =       { 0.80,     1.00,       0.80,       0.80,       0.80  } -- V12, V
+C_charge        =       { 1/10,     1/10,       1/10,       1/3,        1/3   } -- CC charge C-rate
+C_disch         =       { 1/10,     1/10,       1/10,       1/3,        1/3   } -- CC discharge C-rate
 C_CV_charge_end =       { 1/50,     1/50,       1/50,       1/50,       1/50  } -- CV charge end C-rate
 C_CV_disch_end  =       { 1/50,     1/50,       1/50,       1/50,       1/50  } -- CV discharge end C-rate
 
 -- Recording and timeouts shared by all enabled columns
-record_CC_dV = 0.001        -- V: record CC when V12 changes by 1 mV
+record_CC_dV = 0.001        -- V: record CC when V2R changes by 1 mV
 record_CV_dI = 0.00001      -- A: record CV when |i| changes by 0.01 mA
 record_fallback_dt = 60     -- s: maximum interval between recorded samples
 MAX_CC_TIME_S = 24 * 3600   -- s: abort on CC timeout
@@ -61,8 +61,13 @@ display_maximum_dt = 1     -- Update live electrochemical display every 1 second
 
 -- Independent hardware safety bounds (verify for the actual cell)
 MAX_CURRENT_A = 0.005       -- A: 5 mA absolute current limit
-SAFE_V12_MIN = -0.05        -- V
-SAFE_V12_MAX = 0.90         -- V
+-- ec.SetSafetyLimits monitors V12 (not V2R); with this electrode wiring,
+-- V12 is negative. These provisional bounds MUST be verified against the cell.
+SAFE_V12_MIN = -0.95        -- V: hardware lower voltage safety limit (V12)
+SAFE_V12_MAX = 0.10         -- V: hardware upper voltage safety limit (V12)
+-- Additional software-only V2R checks, not a substitute for hardware limits.
+SAFE_V2R_MIN = -0.05        -- V: expected working electrode lower safety limit
+SAFE_V2R_MAX = 0.90         -- V: expected working electrode upper safety limit
 
 -- Resolved automatically as cycling proceeds; do not manually set.
 NN = 1
@@ -98,17 +103,17 @@ function MakeCCCV(direction, c_rate, cv_cutoff_c, cutoff_v, cc_step, cv_step, ne
     local cv_limit = CurrentFromCRate(cv_cutoff_c)
 
     stepconf[cc_step] = {
-        step_type = "CC", i = cc_current, con = "i12_V12", cd = cd,
+        step_type = "CC", i = cc_current, con = "i12_V2R", cd = cd,
         range = "auto", bw = "fast", diffcap_dV = record_CC_dV,
-        record = {V12 = record_CC_dV, V1R = 999, V2R = 999,
+        record = {V12 = 999, V1R = 999, V2R = record_CC_dV,
                   i = 999, t = record_fallback_dt},
         limits = {
             [0] = function(_)
                 if step_t > MAX_CC_TIME_S then
                     ec.print(SEV_ERR, "CC step timed out; switching OFF")
                     SwitchTo(1000)
-                elseif (direction == "charge" and V12 >= cutoff_v)
-                    or (direction == "discharge" and V12 <= cutoff_v) then
+                elseif (direction == "charge" and V2R >= cutoff_v)
+                    or (direction == "discharge" and V2R <= cutoff_v) then
                     SwitchTo(cv_step)
                 end
             end
@@ -116,7 +121,7 @@ function MakeCCCV(direction, c_rate, cv_cutoff_c, cutoff_v, cc_step, cv_step, ne
     }
 
     stepconf[cv_step] = {
-        step_type = "CV", v = cutoff_v, con = "i12_V12", cd = cd,
+        step_type = "CV", v = cutoff_v, con = "i12_V2R", cd = cd,
         range = "auto", bw = "fast",
         record = {V12 = 999, V1R = 999, V2R = 999,
                   i = record_CV_dI, t = record_fallback_dt},
@@ -200,7 +205,8 @@ function ValidateAndLoadProtocolInputs()
         or not ValidPositiveNumber(MAX_CC_TIME_S)
         or not ValidPositiveNumber(MAX_CV_TIME_S)
         or not ValidPositiveNumber(CV_MIN_TIME_S)
-        or not (SAFE_V12_MIN < initial_VLo and initial_VLo < SAFE_V12_MAX)
+        or not (SAFE_V2R_MIN < initial_VLo and initial_VLo < SAFE_V2R_MAX)
+        or not (SAFE_V2R_MIN < SAFE_V2R_MAX)
         or not (SAFE_V12_MIN < SAFE_V12_MAX) then
         ec.print(SEV_ERR, "Invalid global CCCV settings; aborting")
         return false
@@ -222,8 +228,8 @@ function ValidateAndLoadProtocolInputs()
                 and ValidPositiveNumber(C_CV_charge_end[col])
                 and ValidPositiveNumber(C_CV_disch_end[col])
                 and type(VLo[col]) == "number" and type(VHi[col]) == "number"
-                and SAFE_V12_MIN < VLo[col] and VLo[col] < VHi[col]
-                and VHi[col] < SAFE_V12_MAX
+                and SAFE_V2R_MIN < VLo[col] and VLo[col] < VHi[col]
+                and VHi[col] < SAFE_V2R_MAX
                 and C_CV_charge_end[col] < C_charge[col]
                 and C_CV_disch_end[col] < C_disch[col]
                 and CurrentFromCRate(C_charge[col]) <= MAX_CURRENT_A
@@ -372,6 +378,17 @@ function CheckLimits()
     t       = ec.GetSeconds()      -- * statemachine time since script init / Seconds
     step_t  = t - step_tstart      -- * statemachine step time, for use as PAT-Composer limit only
     cycle_t = t - cycle_tstart     -- * statemachine cycle time, for use as PAT-Composer limit only
+
+    -- Independent V2R software safety check, evaluated at sample-processing rate.
+    -- Does not replace the hardware V12 and current safety limits.
+    if step_n ~= 1000 and started and processing and not paused then
+        if type(V2R) ~= "number" or V2R ~= V2R
+            or V2R < SAFE_V2R_MIN or V2R > SAFE_V2R_MAX then
+            ec.print(SEV_ERR, "V2R unavailable/outside software limits; switching OFF")
+            SwitchTo(1000)
+            return
+        end
+    end
 
     -- return if sample is from old step --
     if (sample_t > step_tstart) then  -- "if (sample_step_n == step_n)" would not work if step loops to itself
@@ -533,7 +550,7 @@ function ApplyStepConfig(n, is_edit_on_the_fly)
 
     -- get stepconf parameters or use default
     step_type                = stepconf[n].step_type           or "Rest"
-    step_con                 = stepconf[n].con                 or "i12_V12"
+    step_con                 = stepconf[n].con                 or "i12_V2R"
     step_v_ctrl              = stepconf[n].v
     step_i_ctrl              = stepconf[n].i
     step_range               = stepconf[n].range               or "auto"
